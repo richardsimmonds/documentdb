@@ -261,6 +261,112 @@ json.dump(data, sys.stdout)
         )
         self.assertNotIn("CERT_SECRET", result.stdout)
 
+    # --- Marker-file idempotency tests (issue #612) ---
+
+    def test_sample_data_init_creates_marker_file(self):
+        """First boot with --init-data true creates the marker file."""
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            "--init-data",
+            "true",
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("Sample data initialization completed.", result.stdout)
+        marker = self.data_dir / ".sample_data_initialized"
+        self.assertTrue(marker.exists(), "Marker file should be created after init")
+
+    def test_sample_data_init_skipped_on_second_boot(self):
+        """Second boot skips sample data init when marker file exists."""
+        marker = self.data_dir / ".sample_data_initialized"
+        marker.touch()
+
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            "--init-data",
+            "true",
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("Sample data already initialized", result.stdout)
+        self.assertIn("Skipping", result.stdout)
+        self.assertNotIn("Loading sample data from", result.stdout)
+
+    def test_sample_data_skip_message_mentions_marker_deletion(self):
+        """Skip message tells users how to re-seed."""
+        marker = self.data_dir / ".sample_data_initialized"
+        marker.touch()
+
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            "--init-data",
+            "true",
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("rm", result.stdout)
+        self.assertIn(".sample_data_initialized", result.stdout)
+
+    def test_custom_data_init_creates_marker_file(self):
+        """First boot with custom JS data creates the custom marker file."""
+        init_data_path = self.root / "custom_init"
+        init_data_path.mkdir(parents=True)
+        (init_data_path / "seed.js").write_text("// seed data\n", encoding="utf-8")
+
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            extra_env={"INIT_DATA_PATH": str(init_data_path)},
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("Custom data initialization completed.", result.stdout)
+        marker = self.data_dir / ".custom_data_initialized"
+        self.assertTrue(marker.exists(), "Custom marker file should be created after init")
+
+    def test_custom_data_init_skipped_on_second_boot(self):
+        """Second boot skips custom data init when marker file exists."""
+        init_data_path = self.root / "custom_init"
+        init_data_path.mkdir(parents=True)
+        (init_data_path / "seed.js").write_text("// seed data\n", encoding="utf-8")
+
+        marker = self.data_dir / ".custom_data_initialized"
+        marker.touch()
+
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            extra_env={"INIT_DATA_PATH": str(init_data_path)},
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("Custom data already initialized", result.stdout)
+        self.assertIn("Skipping", result.stdout)
+        self.assertNotIn("Using custom initialization data from", result.stdout)
+
+    def test_sample_data_no_marker_when_init_disabled(self):
+        """When --init-data is false (default), no sample marker file is created."""
+        result = self._run_entrypoint("--password", "mypassword")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        marker = self.data_dir / ".sample_data_initialized"
+        self.assertFalse(marker.exists(), "Marker should not exist when init-data is false")
+
+    def test_sample_data_no_marker_on_failure(self):
+        """When init script fails, marker file should NOT be created."""
+        # Replace the init script with one that fails
+        self._write_exec(
+            self.gateway_scripts / "init_documentdb_data.sh",
+            "#!/bin/sh\nexit 1\n",
+        )
+
+        result = self._run_entrypoint(
+            "--password",
+            "mypassword",
+            "--init-data",
+            "true",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        marker = self.data_dir / ".sample_data_initialized"
+        self.assertFalse(marker.exists(), "Marker should not exist after failed init")
+
 
 if __name__ == "__main__":
     unittest.main()

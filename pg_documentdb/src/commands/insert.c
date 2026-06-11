@@ -127,6 +127,7 @@ static pgbson * PreprocessInsertionDoc(const bson_value_t *docValue,
 									   MongoCollection *collection,
 									   int64 *shardKeyHash, pgbson **objectId,
 									   ExprEvalState *evalState);
+static pgbson * ReplaceEmptyTimestampsWithCurrentTime(pgbson *document);
 static uint64 InsertOneWithTransactionCore(uint64 collectionId, const
 										   char *shardTableName,
 										   int64 shardKeyValue, text *transactionId,
@@ -1498,6 +1499,12 @@ PreprocessInsertionDoc(const bson_value_t *docValue, MongoCollection *collection
 	PgbsonValidateInputBson(insertDoc, BSON_VALIDATE_NONE);
 
 	/*
+	 * Native Mongo compatibility: an empty timestamp value (Timestamp(0, 0))
+	 * in a top-level field is replaced with the current timestamp on insert.
+	 */
+	insertDoc = ReplaceEmptyTimestampsWithCurrentTime(insertDoc);
+
+	/*
 	 * It's possible that the document does not specify the full shard key.
 	 * In that case we will only hash the parts that are specified. That
 	 * is not problematic in terms of querying, because it means this
@@ -1514,6 +1521,79 @@ PreprocessInsertionDoc(const bson_value_t *docValue, MongoCollection *collection
 	}
 
 	return insertDoc;
+}
+
+
+/*
+ * Native Mongo replaces an empty timestamp value (Timestamp(0, 0)) in any
+ * top-level field of an inserted document with the current timestamp. The
+ * _id field is exempt: an empty timestamp there is stored as-is.
+ *
+ * Returns the original document if no empty timestamps are present (the
+ * common case), otherwise returns a rewritten document with the empty
+ * timestamps replaced.
+ */
+static pgbson *
+ReplaceEmptyTimestampsWithCurrentTime(pgbson *document)
+{
+	bson_iter_t it;
+	PgbsonInitIterator(document, &it);
+
+	bool hasEmptyTimestamp = false;
+	while (bson_iter_next(&it))
+	{
+		const bson_value_t *value = bson_iter_value(&it);
+		StringView keyView = bson_iter_key_string_view(&it);
+		if (value->value_type == BSON_TYPE_TIMESTAMP &&
+			value->value.v_timestamp.timestamp == 0 &&
+			value->value.v_timestamp.increment == 0 &&
+			!StringViewEquals(&keyView, &IdFieldStringView))
+		{
+			hasEmptyTimestamp = true;
+			break;
+		}
+	}
+
+	if (!hasEmptyTimestamp)
+	{
+		return document;
+	}
+
+	/* Compute the current timestamp value once for the whole document.
+	 * Like HandleUpdateDollarCurrentDate ($currentDate), we store the
+	 * clock's nanosecond component in the increment field. */
+	struct timespec spec;
+	clock_gettime(CLOCK_REALTIME, &spec);
+
+	bson_value_t currentTimestampValue = { 0 };
+	currentTimestampValue.value_type = BSON_TYPE_TIMESTAMP;
+	currentTimestampValue.value.v_timestamp.timestamp = spec.tv_sec;
+	currentTimestampValue.value.v_timestamp.increment = spec.tv_nsec;
+
+	pgbson_writer writer;
+	PgbsonWriterInit(&writer);
+
+	PgbsonInitIterator(document, &it);
+	while (bson_iter_next(&it))
+	{
+		const bson_value_t *value = bson_iter_value(&it);
+		const char *key = bson_iter_key(&it);
+		uint32_t keyLength = bson_iter_key_len(&it);
+		StringView keyView = bson_iter_key_string_view(&it);
+		if (value->value_type == BSON_TYPE_TIMESTAMP &&
+			value->value.v_timestamp.timestamp == 0 &&
+			value->value.v_timestamp.increment == 0 &&
+			!StringViewEquals(&keyView, &IdFieldStringView))
+		{
+			PgbsonWriterAppendValue(&writer, key, keyLength, &currentTimestampValue);
+		}
+		else
+		{
+			PgbsonWriterAppendValue(&writer, key, keyLength, value);
+		}
+	}
+
+	return PgbsonWriterGetPgbson(&writer);
 }
 
 

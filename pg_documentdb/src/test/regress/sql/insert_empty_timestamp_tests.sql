@@ -1,0 +1,122 @@
+SET search_path TO documentdb_api,documentdb_core,documentdb_api_catalog;
+SET documentdb.next_collection_id TO 1985100;
+SET documentdb.next_collection_index_id TO 1985100;
+
+SELECT documentdb_api.create_collection('db', 'insert_empty_timestamp');
+
+-- Function that inserts a document via insert_one and validates that empty timestamps
+-- (Timestamp(0, 0)) in the given top-level fields were replaced with the current
+-- timestamp (i.e. the stored value lies between the clock just before & after the insert).
+CREATE OR REPLACE FUNCTION test_insert_one_empty_timestamp(p_doc bson, p_filter bson, p_converted_keys text[])
+RETURNS text
+AS $$
+DECLARE
+    obj            json;
+    bgn_epoch      numeric;
+    end_epoch      numeric;
+    qkey           text;
+    ts_seconds     bigint;
+    bgn_seconds    bigint;
+    end_seconds    bigint;
+BEGIN
+    SELECT extract(epoch from clock_timestamp()) into bgn_epoch;    -- time just before the insert
+    PERFORM documentdb_api.insert_one('db', 'insert_empty_timestamp', p_doc);
+    SELECT extract(epoch from clock_timestamp()) into end_epoch;    -- time just after the insert
+
+    -- Adjust begin and end epochs by 1 second to eliminate any rounding error and reduce flakyness.
+    bgn_seconds := FLOOR(bgn_epoch) - 1;
+    end_seconds := CEIL(end_epoch) + 1;
+
+    SELECT document INTO obj FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ p_filter;
+
+    IF obj IS NULL THEN
+        RETURN 'TEST FAILED : document not found';
+    END IF;
+
+    FOREACH qkey IN ARRAY p_converted_keys
+    LOOP
+        IF (obj->qkey->'$timestamp' IS NULL) THEN
+            RETURN 'TEST FAILED : key "' || qkey || '" is not a timestamp';
+        END IF;
+        SELECT obj->qkey->'$timestamp'->>'t' INTO ts_seconds;
+        IF ts_seconds NOT BETWEEN bgn_seconds AND end_seconds THEN
+            RETURN 'TEST FAILED : key "' || qkey || '" : ' || ts_seconds || ' should be between ' || bgn_seconds || ' and ' || end_seconds;
+        END IF;
+    END LOOP;
+
+    RETURN 'TEST PASSED';
+END;
+$$
+LANGUAGE plpgsql;
+
+-- Same validation for the batch insert command (documentdb_api.insert).
+CREATE OR REPLACE FUNCTION test_insert_batch_empty_timestamp(p_spec bson, p_filter bson, p_converted_keys text[])
+RETURNS text
+AS $$
+DECLARE
+    obj            json;
+    bgn_epoch      numeric;
+    end_epoch      numeric;
+    qkey           text;
+    ts_seconds     bigint;
+    bgn_seconds    bigint;
+    end_seconds    bigint;
+BEGIN
+    SELECT extract(epoch from clock_timestamp()) into bgn_epoch;    -- time just before the insert
+    PERFORM documentdb_api.insert('db', p_spec);
+    SELECT extract(epoch from clock_timestamp()) into end_epoch;    -- time just after the insert
+
+    -- Adjust begin and end epochs by 1 second to eliminate any rounding error and reduce flakyness.
+    bgn_seconds := FLOOR(bgn_epoch) - 1;
+    end_seconds := CEIL(end_epoch) + 1;
+
+    SELECT document INTO obj FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ p_filter;
+
+    IF obj IS NULL THEN
+        RETURN 'TEST FAILED : document not found';
+    END IF;
+
+    FOREACH qkey IN ARRAY p_converted_keys
+    LOOP
+        IF (obj->qkey->'$timestamp' IS NULL) THEN
+            RETURN 'TEST FAILED : key "' || qkey || '" is not a timestamp';
+        END IF;
+        SELECT obj->qkey->'$timestamp'->>'t' INTO ts_seconds;
+        IF ts_seconds NOT BETWEEN bgn_seconds AND end_seconds THEN
+            RETURN 'TEST FAILED : key "' || qkey || '" : ' || ts_seconds || ' should be between ' || bgn_seconds || ' and ' || end_seconds;
+        END IF;
+    END LOOP;
+
+    RETURN 'TEST PASSED';
+END;
+$$
+LANGUAGE plpgsql;
+
+-- an empty timestamp in a top-level field is converted to the current timestamp on insert
+SELECT test_insert_one_empty_timestamp('{ "_id": 1, "k": { "$timestamp": { "t": 0, "i": 0 } } }', '{ "_id": 1 }', ARRAY['k']::text[]);
+
+-- all empty timestamps in top-level fields are converted
+SELECT test_insert_one_empty_timestamp('{ "_id": 2, "k": { "$timestamp": { "t": 0, "i": 0 } }, "j": { "$timestamp": { "t": 0, "i": 0 } } }', '{ "_id": 2 }', ARRAY['k','j']::text[]);
+
+-- a non-empty timestamp is stored as-is
+SELECT documentdb_api.insert_one('db','insert_empty_timestamp','{ "_id": 3, "k": { "$timestamp": { "t": 12345, "i": 6 } } }');
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ '{ "_id": 3 }' AND document @@ '{ "k": { "$timestamp": { "t": 12345, "i": 6 } } }';
+
+-- an empty timestamp in the _id field is exempt and stored as-is
+SELECT documentdb_api.insert_one('db','insert_empty_timestamp','{ "_id": { "$timestamp": { "t": 0, "i": 0 } }, "k": 1 }');
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ '{ "_id": { "$timestamp": { "t": 0, "i": 0 } } }';
+
+-- an empty timestamp in a nested field is not converted
+SELECT documentdb_api.insert_one('db','insert_empty_timestamp','{ "_id": 5, "nested": { "k": { "$timestamp": { "t": 0, "i": 0 } } } }');
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ '{ "nested.k": { "$timestamp": { "t": 0, "i": 0 } } }';
+
+-- an empty timestamp inside an array is not converted
+SELECT documentdb_api.insert_one('db','insert_empty_timestamp','{ "_id": 6, "arr": [ { "$timestamp": { "t": 0, "i": 0 } } ] }');
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ '{ "_id": 6 }' AND document @@ '{ "arr": { "$timestamp": { "t": 0, "i": 0 } } }';
+
+-- the batch insert command converts empty timestamps in all inserted documents
+SELECT test_insert_batch_empty_timestamp('{ "insert": "insert_empty_timestamp", "documents": [ { "_id": 21, "k": { "$timestamp": { "t": 0, "i": 0 } } }, { "_id": 22, "k": { "$timestamp": { "t": 0, "i": 0 } } } ] }', '{ "_id": 21 }', ARRAY['k']::text[]);
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp') WHERE document @@ '{ "_id": 22 }' AND document @@ '{ "k": { "$gt": { "$timestamp": { "t": 0, "i": 0 } } } }';
+
+-- all the documents made it in
+SELECT COUNT(*) FROM documentdb_api.collection('db', 'insert_empty_timestamp');

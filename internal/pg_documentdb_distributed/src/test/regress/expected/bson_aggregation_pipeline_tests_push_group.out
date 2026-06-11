@@ -131,3 +131,116 @@ SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "
  { "_id" : "bread", "items" : [ [ { "$numberInt" : "5" } ], [ null ], [ { "$numberInt" : "1" } ] ] }
 (1 row)
 
+-- Regression test for GitHub issue #499:
+-- $group with $push should preserve the document order established by a preceding $sort stage.
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 1, "name": "alpha", "category": "A" }', NULL);
+NOTICE:  creating collection
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 2, "name": "charlie", "category": "B" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 3, "name": "foxtrot", "category": "A" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 4, "name": "hotel", "category": "B" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 5, "name": "kilo", "category": "A" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 6, "name": "november", "category": "C" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 7, "name": "romeo", "category": "A" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 8, "name": "sierra", "category": "C" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 9, "name": "whiskey", "category": "A" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 10, "name": "zulu", "category": "A" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+/* $sort ascending followed by $group with $push: arrays should be in ascending order of _id */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+                                       document                                        
+---------------------------------------------------------------------
+ { "_id" : "A", "names" : [ "alpha", "foxtrot", "kilo", "romeo", "whiskey", "zulu" ] }
+ { "_id" : "B", "names" : [ "charlie", "hotel" ] }
+ { "_id" : "C", "names" : [ "november", "sierra" ] }
+(3 rows)
+
+/* $sort descending followed by $group with $push: arrays should be in descending order of _id */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": -1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+                                       document                                        
+---------------------------------------------------------------------
+ { "_id" : "A", "names" : [ "zulu", "whiskey", "romeo", "kilo", "foxtrot", "alpha" ] }
+ { "_id" : "B", "names" : [ "hotel", "charlie" ] }
+ { "_id" : "C", "names" : [ "sierra", "november" ] }
+(3 rows)
+
+/* $sort on a non-_id field followed by $group with $push */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "name": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+                                       document                                        
+---------------------------------------------------------------------
+ { "_id" : "A", "names" : [ "alpha", "foxtrot", "kilo", "romeo", "whiskey", "zulu" ] }
+ { "_id" : "B", "names" : [ "charlie", "hotel" ] }
+ { "_id" : "C", "names" : [ "november", "sierra" ] }
+(3 rows)
+
+/* shard collection and re-run to verify behaviour across shards */
+SELECT documentdb_api.shard_collection('db', 'testGroupWithPushSort', '{ "_id": "hashed" }', false);
+ shard_collection 
+---------------------------------------------------------------------
+ 
+(1 row)
+
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+                                       document                                        
+---------------------------------------------------------------------
+ { "_id" : "A", "names" : [ "alpha", "foxtrot", "kilo", "romeo", "whiskey", "zulu" ] }
+ { "_id" : "B", "names" : [ "charlie", "hotel" ] }
+ { "_id" : "C", "names" : [ "november", "sierra" ] }
+(3 rows)
+
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": -1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+                                       document                                        
+---------------------------------------------------------------------
+ { "_id" : "A", "names" : [ "zulu", "whiskey", "romeo", "kilo", "foxtrot", "alpha" ] }
+ { "_id" : "B", "names" : [ "hotel", "charlie" ] }
+ { "_id" : "C", "names" : [ "sierra", "november" ] }
+(3 rows)
+

@@ -1235,6 +1235,24 @@ ValidateAddToSetWithDollarEach(const bson_value_t *updateValue,
 	{
 		*isEach = true;
 
+		/* $each must be the only field in the $addToSet value. Unlike $push,
+		 * $addToSet does not support the $position, $slice or $sort modifiers,
+		 * so any field after $each is rejected.
+		 */
+		bson_iter_t updateValueIter;
+		BsonValueInitIterator(updateValue, &updateValueIter);
+
+		/* Skip the first field ($each) and check for any trailing fields. */
+		if (bson_iter_next(&updateValueIter) && bson_iter_next(&updateValueIter))
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+							errmsg(
+								"Found unexpected fields after $each in $addToSet: %s",
+								BsonValueToJsonForLogging(updateValue)),
+							errdetail_log(
+								"Found unexpected fields after $each in $addToSet")));
+		}
+
 		/* The value provided to the $each within the $addToSet must specifically be an array, otherwise the operation will result in an error. */
 		if (element.bsonValue.value_type != BSON_TYPE_ARRAY)
 		{

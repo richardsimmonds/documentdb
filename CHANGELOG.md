@@ -1,4 +1,5 @@
 ### documentdb v0.114-0 (Unreleased) ###
+* Add support for `killAllSessions` command in the gateway *[Feature]* (#526)
 * Fix crash when `$natural` sort on non-base relations that are already sorted by pipeline. *[Bugfix]* (#532)
 * Fix schema validation propagation and ensure correct caching of the parsed validator across calls. *[Bugfix]*
 

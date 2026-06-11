@@ -162,7 +162,7 @@ struct CommandInfo {
     secondary_override_ok: Option<bool>,
 }
 
-static SUPPORTED_COMMANDS : [CommandInfo; 62] = [
+static SUPPORTED_COMMANDS : [CommandInfo; 63] = [
 	CommandInfo {
 		command_name: "abortTransaction",
 		admin_only: true,
@@ -481,6 +481,14 @@ static SUPPORTED_COMMANDS : [CommandInfo; 62] = [
 		help: "Check if the instance is sharded.",
 		secondary_ok: false,
 		requires_auth: false,
+		secondary_override_ok: None,
+	},
+	CommandInfo {
+		command_name: "killAllSessions",
+		admin_only: true,
+		help: "Stop all sessions, or all sessions for the specified users.",
+		secondary_ok: false,
+		requires_auth: true,
 		secondary_override_ok: None,
 	},
 	CommandInfo {

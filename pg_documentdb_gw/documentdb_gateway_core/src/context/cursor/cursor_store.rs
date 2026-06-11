@@ -95,6 +95,29 @@ impl CursorStore {
     }
 
     #[must_use]
+    pub fn invalidate_all_cursors(&self) -> Vec<i64> {
+        let mut invalidated_cursor_ids = Vec::new();
+        self.cursors.retain(|key, _| {
+            invalidated_cursor_ids.push(key.id().into());
+            false
+        });
+        invalidated_cursor_ids
+    }
+
+    #[must_use]
+    pub fn invalidate_cursors_by_owner_name(&self, owner_name: &str) -> Vec<i64> {
+        let mut invalidated_cursor_ids = Vec::new();
+        self.cursors.retain(|key, _| {
+            let should_remove = key.owner().name() == owner_name;
+            if should_remove {
+                invalidated_cursor_ids.push(key.id().into());
+            }
+            !should_remove
+        });
+        invalidated_cursor_ids
+    }
+
+    #[must_use]
     pub fn invalidate_cursors_by_session(&self, lsid: &LogicalSessionId) -> Vec<i64> {
         let mut invalidated_cursor_ids = Vec::new();
         self.cursors.retain(|key, v| {

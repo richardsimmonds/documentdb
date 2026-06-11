@@ -272,8 +272,72 @@ impl TransactionStore {
         caller: &Principal,
     ) -> Result<Option<(LogicalSessionId, TransactionEntry)>> {
         let key = SessionKey::new(lsid.clone(), caller.clone());
+        self.remove_transaction_by_key(&key).await
+    }
 
-        let Some((deleted_lsid, mut transaction_entry)) = self.transactions.remove(&key) else {
+    /// Aborts and removes the active transactions for every session.
+    ///
+    /// Returns the logical session ids of the removed transactions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if aborting any removed transaction fails.
+    pub async fn remove_all_transactions(&self) -> Result<Vec<LogicalSessionId>> {
+        let keys: Vec<SessionKey> = self
+            .transactions
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        self.remove_transactions_by_keys(&keys).await
+    }
+
+    /// Aborts and removes the active transactions owned by any of the given
+    /// principal names.
+    ///
+    /// Returns the logical session ids of the removed transactions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if aborting any removed transaction fails.
+    pub async fn remove_transactions_by_owner_names(
+        &self,
+        owner_names: &[String],
+    ) -> Result<Vec<LogicalSessionId>> {
+        let keys: Vec<SessionKey> = self
+            .transactions
+            .iter()
+            .filter_map(|entry| {
+                owner_names
+                    .iter()
+                    .any(|owner_name| owner_name == entry.key().owner().name())
+                    .then(|| entry.key().clone())
+            })
+            .collect();
+
+        self.remove_transactions_by_keys(&keys).await
+    }
+
+    async fn remove_transactions_by_keys(
+        &self,
+        keys: &[SessionKey],
+    ) -> Result<Vec<LogicalSessionId>> {
+        let mut removed_lsids = Vec::new();
+
+        for key in keys {
+            if let Some((lsid, _)) = self.remove_transaction_by_key(key).await? {
+                removed_lsids.push(lsid);
+            }
+        }
+
+        Ok(removed_lsids)
+    }
+
+    async fn remove_transaction_by_key(
+        &self,
+        key: &SessionKey,
+    ) -> Result<Option<(LogicalSessionId, TransactionEntry)>> {
+        let Some((deleted_lsid, mut transaction_entry)) = self.transactions.remove(key) else {
             return Ok(None);
         };
 

@@ -35,6 +35,47 @@ use mongodb::{
 };
 use tokio::time::{sleep, Duration};
 
+pub async fn validate_kill_all_sessions(
+    client: &Client,
+    users: Vec<bson::Document>,
+) -> Result<(), Error> {
+    let response = client
+        .database("admin")
+        .run_command(doc! { "killAllSessions": users })
+        .await?;
+
+    assert_eq!(response.get_f64("ok").unwrap(), 1.0);
+
+    Ok(())
+}
+
+pub async fn validate_kill_all_sessions_requires_admin_db(client: &Client) -> Result<(), Error> {
+    let response = client
+        .database("test")
+        .run_command(doc! { "killAllSessions": [] })
+        .await;
+
+    assert!(
+        response.is_err(),
+        "killAllSessions should fail against a non-admin database"
+    );
+
+    if let Err(e) = response {
+        let error = e.kind.as_ref();
+        if let ErrorKind::Command(cmd_err) = error {
+            assert_eq!(
+                cmd_err.code,
+                13, // Unauthorized error code
+                "Expected Unauthorized error, got: {cmd_err:?}"
+            );
+        } else {
+            panic!("Expected Command error, got: {error:?}");
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn validate_processing(client: &Client, command_name: &str) -> Result<(), Error> {
     let session = client.start_session().await?;
 

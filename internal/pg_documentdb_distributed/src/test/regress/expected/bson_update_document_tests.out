@@ -605,6 +605,15 @@ SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a",
  { "_id" : { "$numberInt" : "1" }, "letters" : [ "a", "b", { "$ach" : [ "c" ] } ] }
 (1 row)
 
+-- $addToSet does not support $position, $slice or $sort modifiers (or any field after $each)
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$position": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+ERROR:  Found unexpected fields after $each in $addToSet: { "$each" : [ "c", "d" ], "$position" : 1 }
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$slice": -2 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+ERROR:  Found unexpected fields after $each in $addToSet: { "$each" : [ "c", "d" ], "$slice" : -2 }
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$sort": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+ERROR:  Found unexpected fields after $each in $addToSet: { "$each" : [ "c", "d" ], "$sort" : 1 }
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "x": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+ERROR:  Found unexpected fields after $each in $addToSet: { "$each" : [ "c", "d" ], "x" : 1 }
 -- update scenario tests: $unset
 SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "a": { "b": 2 } }', '{ "": { "$unset": { "a.b": 1 } } }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
               update_bson_document              

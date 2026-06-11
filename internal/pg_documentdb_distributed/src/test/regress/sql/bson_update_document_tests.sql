@@ -170,6 +170,11 @@ SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "colors": "blue,
 SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": "c"}}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
 SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each" : {} }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
 SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$ach": ["c"]}}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+-- $addToSet does not support $position, $slice or $sort modifiers (or any field after $each)
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$position": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$slice": -2 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "$sort": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
+SELECT documentdb_api_internal.update_bson_document('{"_id": 1, "letters": ["a","b"] }', '{ "": { "$addToSet": { "letters": { "$each": ["c","d"], "x": 1 }}} }', '{}', NULL::documentdb_core.bson, NULL::documentdb_core.bson, NULL::TEXT);
 
 
 -- update scenario tests: $unset

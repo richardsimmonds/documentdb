@@ -31,3 +31,32 @@ SELECT documentdb_api.insert_one('db','testGroupWithPush','{ "_id" : 7, "product
 SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPush", "pipeline": [{"$match": {"product": "bread"}}, { "$group": { "_id": "$product", "items": { "$push": { "qty": "$stock"} } } } ] }');
 SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPush", "pipeline": [{"$match": {"product": "bread"}}, { "$group": { "_id": "$product", "items": { "$push": "$stock" } } } ] }');
 SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPush", "pipeline": [{"$match": {"product": "bread"}}, { "$group": { "_id": "$product", "items": { "$push": ["$stock"] } } } ] }');
+
+
+-- Regression test for GitHub issue #499:
+-- $group with $push should preserve the document order established by a preceding $sort stage.
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 1, "name": "alpha", "category": "A" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 2, "name": "charlie", "category": "B" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 3, "name": "foxtrot", "category": "A" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 4, "name": "hotel", "category": "B" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 5, "name": "kilo", "category": "A" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 6, "name": "november", "category": "C" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 7, "name": "romeo", "category": "A" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 8, "name": "sierra", "category": "C" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 9, "name": "whiskey", "category": "A" }', NULL);
+SELECT documentdb_api.insert_one('db','testGroupWithPushSort','{ "_id": 10, "name": "zulu", "category": "A" }', NULL);
+
+/* $sort ascending followed by $group with $push: arrays should be in ascending order of _id */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+
+/* $sort descending followed by $group with $push: arrays should be in descending order of _id */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": -1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+
+/* $sort on a non-_id field followed by $group with $push */
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "name": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+
+/* shard collection and re-run to verify behaviour across shards */
+SELECT documentdb_api.shard_collection('db', 'testGroupWithPushSort', '{ "_id": "hashed" }', false);
+
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": 1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db', '{ "aggregate": "testGroupWithPushSort", "pipeline": [ { "$sort": { "_id": -1 } }, { "$group": { "_id": "$category", "names": { "$push": "$name" } } }, { "$sort": { "_id": 1 } } ] }');

@@ -6140,7 +6140,8 @@ AddArrayAggGroupAccumulator(Query *query, const bson_value_t *accumulatorValue,
 							ParseState *parseState, char *identifiers,
 							Expr *documentExpr, Oid aggregateFunctionOid,
 							char *fieldPath, bool handleSingleValue,
-							Expr *variableSpec)
+							Expr *variableSpec,
+							TargetEntry **createdAccumulatorEntry)
 {
 	Expr *constValue = (Expr *) MakeBsonConst(BsonValueToDocumentPgbson(
 												  accumulatorValue));
@@ -6182,7 +6183,7 @@ AddArrayAggGroupAccumulator(Query *query, const bson_value_t *accumulatorValue,
 	repathArgs = lappend(repathArgs, AddGroupExpression((Expr *) aggref,
 														parseState, identifiers,
 														query, BsonTypeId(),
-														NULL));
+														createdAccumulatorEntry));
 	return repathArgs;
 }
 
@@ -7294,6 +7295,26 @@ HandleGroupCore(const bson_value_t *existingValue, Query *query,
 			ReportFeatureUsage(FEATURE_AGGREGATE_GROUP_PUSH);
 			char *fieldPath = "";
 			bool handleSingleValue = true;
+			TargetEntry *accumulatorTle = NULL;
+
+			/* When $push is preceded by a $sort (either via the context's
+			 * sortSpec set by an immediately preceding $sort stage, or via
+			 * a suffix-sort pushed down by the $sortGroup optimisation),
+			 * attach the sort spec to the array_agg aggregate's ORDER BY
+			 * so the accumulated array preserves the requested order.
+			 * See GitHub issue #499. */
+			const bson_value_t *pushSortSpec = NULL;
+			if (accumulatorSortSpec != NULL)
+			{
+				pushSortSpec = accumulatorSortSpec;
+			}
+			else if (context->sortSpec.value_type != BSON_TYPE_EOD &&
+					 IsSortSpecCompatibleForPushToAccumulatorOperator(
+						 &context->sortSpec))
+			{
+				pushSortSpec = &context->sortSpec;
+			}
+
 			repathArgs = AddArrayAggGroupAccumulator(query,
 													 &accumulatorElement.bsonValue,
 													 repathArgs,
@@ -7303,7 +7324,16 @@ HandleGroupCore(const bson_value_t *existingValue, Query *query,
 													 BsonArrayAggregateAllArgsFunctionOid(),
 													 fieldPath,
 													 handleSingleValue,
-													 context->variableSpec);
+													 context->variableSpec,
+													 pushSortSpec != NULL ?
+													 &accumulatorTle : NULL);
+
+			if (pushSortSpec != NULL && PG_VERSION_NUM >= 160000)
+			{
+				SetAccumulatorSortOrder(accumulatorTle, origEntry->expr,
+										pushSortSpec,
+										context->collationString);
+			}
 		}
 		else if (StringViewEqualsCString(&accumulatorName, "$stdDevSamp"))
 		{

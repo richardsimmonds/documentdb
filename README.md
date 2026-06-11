@@ -167,3 +167,6 @@ for eachDocument in results:
 - Check out our [website](https://documentdb.io) to stay up to date with the latest on the project.
 - Contributors and users can join the [DocumentDB Discord channel](https://discord.gg/vH7bYu524D) for quick collaboration.
 - Check out [FerretDB](https://github.com/FerretDB/FerretDB) and their integration of DocumentDB as a backend engine.
+- Want to build from source, run tests locally, or hack on the extensions? See [docs/build-from-source.md](docs/build-from-source.md).
+- Curious how the components fit together? See [docs/architecture.md](docs/architecture.md) for the data flow, wire protocol translation, and BSON type system overview.
+- Ready to use vector search, geospatial queries, or full-text search? See [docs/search-guide.md](docs/search-guide.md) for index creation, sample queries, and parameter references.
